@@ -269,7 +269,7 @@ function pollUnifi(){
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/latest_assoctime_ago", $mqttFriendlyLatestAssocTimeAgo, 0, 1); //These are seconds
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/hostname", $mqttFriendlyHostname, 0, 1); //This is the network hostname
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/name", $mqttFriendlyName, 0, 1); //This is the alias set in unifi
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/name", $mqttFriendlyEssid, 0, 1); //This is the connected WLAN SSID 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/essid", $mqttFriendlyEssid, 0, 1); //This is the connected WLAN SSID 
 
 		}
 
