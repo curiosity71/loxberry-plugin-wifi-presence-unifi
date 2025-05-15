@@ -295,9 +295,9 @@ function pollUnifi(){
 				$mqttFriendlyClientCount = $ap->num_sta;
 				// Check if this AP is the uplink of one of the monitored clients
 				if (in_array($ap->mac, $uplinkMacList)) {
-					$mqttFriendlyPresence = 1; 
+					$mqttFriendlyPresence = 1;
 				} else {
-					$mqttFriendlyPresence = 0; 
+					$mqttFriendlyPresence = 0;
 				}
 
 				$mqtt->publish("wifi-presence-unifi/devices/" . $mqttFriendlyMac . "/name", $mqttFriendlyName, 0, 1);
