@@ -5,7 +5,7 @@ require_once("loxberry_log.php");
 require_once("loxberry_json.php");
 require_once("phpMQTT/phpMQTT.php");
 require_once("include/Client.php");
-define ("GLOBALCOOKIEFILE", LBPDATADIR."/cookies"); 
+define ("GLOBALCOOKIEFILE", LBPDATADIR."/cookies");
 
 
 //Start logging
@@ -42,9 +42,9 @@ function getconfigasjson($output = false){
 	//Get Config
 	$config = new LBJSON(LBPCONFIGDIR."/config.json");
 	LOGDEB("Retrieved backend config: ".json_encode($config));
-	
+
 	if($output){
-		echo json_encode($config->slave); 
+		echo json_encode($config->slave);
 		return;
 	}else{
 		return $config;
@@ -53,14 +53,14 @@ function getconfigasjson($output = false){
 
 
 // Primary action
-function pollUnifi(){	
+function pollUnifi(){
 	LOGINF("Starting action poll");
 	LOGTITLE("pollunifi");
-	
+
 	//Get Config
 	$config = getconfigasjson();
 	$config = $config->slave;
-	
+
 	if(!isset($config->Main->username) OR $config->Main->username == "" OR !isset($config->Main->password) OR $config->Main->password == ""){
 		//Abort, as creds not available.
 		http_response_code(404);
@@ -76,7 +76,7 @@ function pollUnifi(){
 		LOGERR("No site name saved in settings.");
 		return;
 	}
-	
+
 	try {
 		// Prepare MQTT
 		// Get the MQTT Gateway connection details from LoxBerry
@@ -96,9 +96,9 @@ function pollUnifi(){
 		// Initialize the UniFi API connection class and log in to the controller and do our thing
 		$unifi_connection = new UniFi_API\Client(
 			$config->Main->username,
-			$config->Main->password, 
-			$config->Main->url, 
-			$config->Main->sitename, 
+			$config->Main->password,
+			$config->Main->url,
+			$config->Main->sitename,
 			$config->Main->version
 		);
 		$set_debug_mode = $unifi_connection->set_debug(false);
@@ -168,7 +168,7 @@ function pollUnifi(){
 				$online = false;
 				LOGINF("Client ". $mac. " not found in unifi API results, forcing status offline");
 			}
-			
+
 
 
 			//prepare some variables for mqtt transmission
@@ -200,13 +200,13 @@ function pollUnifi(){
 			} else {
 				$mqttFriendlyUptime = -1;
 			}
-			
+
 			if ($foundClient->assoc_time !== null) {
 				$mqttFriendlyAssocTimeAgo = time() - $foundClient->assoc_time;
 			} else {
 				$mqttFriendlyAssocTimeAgo = -1;
 			}
-			
+
 			if ($foundClient->latest_assoc_time !== null) {
 				$mqttFriendlyLatestAssocTimeAgo = time() - $foundClient->latest_assoc_time;
 			} else {
@@ -247,7 +247,7 @@ function pollUnifi(){
 			} else {
 				$mqttFriendlySatisfaction = -1;
 			}
-			
+
 			LOGDEB("Looking up uplink ap name for device " . $foundClient->ap_mac);
 			foreach ($aps_array as $ap) {
 				if (isset($ap->ethernet_table[0]->mac) && $ap->ethernet_table[0]->mac === $foundClient->ap_mac) {
@@ -258,7 +258,6 @@ function pollUnifi(){
 					$mqttFriendlyAPName = "-";
 				}
 			}
-			
 
 			//MQTT transmission
 			if ($online === true) {
@@ -266,7 +265,7 @@ function pollUnifi(){
 				$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/online", 1, 0, 1);
 			} else {
 				LOGINF("Client ". $mac. " is offline");
-				$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/online", 0, 0, 1); 
+				$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/online", 0, 0, 1);
 			}
 
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/powersave_enabled", $mqttFriendlyPowersaveEnabled, 0, 1); // This is either 0 or 1
@@ -280,7 +279,7 @@ function pollUnifi(){
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/latest_assoctime_ago", $mqttFriendlyLatestAssocTimeAgo, 0, 1); //These are seconds
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/hostname", $mqttFriendlyHostname, 0, 1); //This is the network hostname
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/name", $mqttFriendlyName, 0, 1); //This is the alias set in unifi
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/essid", $mqttFriendlyEssid, 0, 1); //This is the connected WLAN SSID 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/essid", $mqttFriendlyEssid, 0, 1); //This is the connected WLAN SSID
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/ip", $mqttFriendlyIp, 0, 1); //This is the connected IP Address
 			$mqtt->publish("wifi-presence-unifi/client/s" . $mqttFriendlyMac . "/satisfaction", $mqttFriendlySatisfaction, 0, 1: //This is the Client Satisfaction
 
@@ -311,10 +310,6 @@ function pollUnifi(){
 	} catch (Exception $e) {
 		LOGERR($e->getMessage());
 	}
-
-	
-
-
 }
 
 ?>
