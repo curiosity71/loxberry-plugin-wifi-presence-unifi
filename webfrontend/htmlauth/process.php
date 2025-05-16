@@ -281,7 +281,7 @@ function pollUnifi(){
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/name", $mqttFriendlyName, 0, 1); //This is the alias set in unifi
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/essid", $mqttFriendlyEssid, 0, 1); //This is the connected WLAN SSID
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/ip", $mqttFriendlyIp, 0, 1); //This is the connected IP Address
-			$mqtt->publish("wifi-presence-unifi/client/s" . $mqttFriendlyMac . "/satisfaction", $mqttFriendlySatisfaction, 0, 1: //This is the Client Satisfaction
+			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/satisfaction", $mqttFriendlySatisfaction, 0, 1: //This is the Client Satisfaction
 
 		}
 
