@@ -248,6 +248,13 @@ function pollUnifi(){
 				$mqttFriendlySatisfaction = -1;
 			}
 
+			}
+			if ($foundClient->signal !== null) {
+				$mqttFriendlySignal = $foundClient->signal;
+			} else {
+				$mqttFriendlySignal = -1;
+			}
+
 			LOGDEB("Looking up uplink ap name for device " . $foundClient->ap_mac);
 			foreach ($aps_array as $ap) {
 				if (isset($ap->ethernet_table[0]->mac) && $ap->ethernet_table[0]->mac === $foundClient->ap_mac) {
@@ -282,6 +289,7 @@ function pollUnifi(){
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/essid", $mqttFriendlyEssid, 0, 1); //This is the connected WLAN SSID
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/ip", $mqttFriendlyIp, 0, 1); //This is the connected IP Address
 			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/satisfaction", $mqttFriendlySatisfaction, 0, 1); //This is the Client Satisfaction
+			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/signal", $mqttFriendlySignal, 0, 1); //This is the Client Signal Strength
 
 		}
 
