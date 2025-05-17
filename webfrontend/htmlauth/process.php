@@ -242,13 +242,13 @@ function pollUnifi(){
 			} else {
 				$mqttFriendlyIp = -1;
 			}
+			
 			if ($foundClient->satisfaction !== null) {
 				$mqttFriendlySatisfaction = $foundClient->satisfaction;
 			} else {
 				$mqttFriendlySatisfaction = -1;
 			}
 
-			}
 			if ($foundClient->signal !== null) {
 				$mqttFriendlySignal = $foundClient->signal;
 			} else {
