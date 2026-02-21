@@ -34,9 +34,17 @@
 		</label>
 		<input name="version" id="version" type="text" placeholder="Enter Version"
 			style="width: 100%; padding: 10px; margin: 10px 0;" />
-
-		<label for="macaddressesraw">
-			<TMPL_VAR SETTINGS.MACADDRESSES>
+		
+		<label for="mqtt_topic_base">
+			<TMPL_VAR SETTINGS.MQTT_TOPIC_BASE>
+		</label>
+		<select name="mqtt_topic_base" id="mqtt_topic_base" style="width: 100%; padding: 10px; margin: 10px 0;">
+			<option value="mac"><TMPL_VAR SETTINGS.MQTT_TOPIC_MAC></option>
+			<option value="name"><TMPL_VAR SETTINGS.MQTT_TOPIC_NAME></option>
+		</select>		
+			
+		<label>
+			<TMPL_VAR SETTINGS.DEVICES_LABEL>
 		</label>
 		<textarea name="macaddressesraw" id="macaddressesraw" rows="12" placeholder="Enter MAC Addresses" data-autogrow="false"
 			style="width: 100%;"></textarea>
