@@ -46,8 +46,10 @@
 		<label>
 			<TMPL_VAR SETTINGS.DEVICES_LABEL>
 		</label>
-		<textarea name="macaddressesraw" id="macaddressesraw" rows="12" placeholder="Enter MAC Addresses" data-autogrow="false"
-			style="width: 100%;"></textarea>
+		<div id="device_list_container" style="border: 1px solid #ccc; padding: 10px; max-height: 350px; overflow-y: auto; background: #f9f9f9; border-radius: 5px;">
+			<i style="color: #666;"><TMPL_VAR SETTINGS.DEVICES_HINT></i>
+		</div>
+		<button class="ui-btn ui-btn-icon-right" id="fetch_devices" style="margin-top: 10px; background-color: #e0e0e0;"><TMPL_VAR SETTINGS.DEVICES_FETCH_BTN></button>
 	</div>
 
 	<p name="status" id="status" style="color: red; text-align: center;"></p>
@@ -103,10 +105,17 @@ textarea {
 				$('#password').val(response.password);
 				$('#sitename').val(response.sitename);
 				$('#version').val(response.version);
-
-				// Join the MacAddressesArray with new lines and set it to the textarea
-				if (response.macaddresses && Array.isArray(response.macaddresses)) {
-					$('#macaddressesraw').val(response.macaddresses.join('\r\n'));
+				// Wert setzen und jQuery Mobile zwingen, die Anzeige zu aktualisieren (.trigger('change'))
+				if (response.mqtt_topic_base) {
+					$('#mqtt_topic_base').val(response.mqtt_topic_base).trigger('change');
+				} else {
+					$('#mqtt_topic_base').val('mac').trigger('change'); 
+				}
+				// Gespeicherte MACs in einer globalen Variable ablegen, damit wir sie später beim Neuladen der Liste anhaken können
+				window.savedMacAddresses = response.macaddresses && Array.isArray(response.macaddresses) ? response.macaddresses : [];
+				
+				if (window.savedMacAddresses.length > 0) {
+					$('#device_list_container').html('<i style="color: #666;">Es sind ' + window.savedMacAddresses.length + ' Geräte gespeichert. Klicke auf "Geräteliste von UniFi abrufen" um die Liste anzuzeigen und zu bearbeiten.</i>');
 				}
 			},
 			error: function (xhr, status, error) {
@@ -118,27 +127,65 @@ textarea {
 
 
 		
+	$("#fetch_devices").click(function (e) {
+		e.preventDefault();
+		$("#fetch_devices").text("<TMPL_VAR SETTINGSJS.DEVICES_LOADING>").attr("disabled", true);
+		$("#device_list_container").html('<i><TMPL_VAR SETTINGSJS.DEVICES_CONNECTING></i>');
 
+		$.ajax('process.php', {
+			type: 'POST',
+			data: { action: 'getclients' },
+			dataType: 'json'
+		})
+		.done(function(clients) {
+			var html = '';
+			if(clients.length === 0) {
+				html = '<i><TMPL_VAR SETTINGSJS.DEVICES_NOTFOUND></i>';
+			} else {
+				clients.forEach(function(client) {
+					var isChecked = window.savedMacAddresses.includes(client.mac) ? 'checked' : '';
+					html += '<div style="margin-bottom: 5px; display: flex; align-items: center;">';
+					html += '<input type="checkbox" name="macaddress_checkbox" value="' + client.mac + '" id="mac_' + client.mac + '" ' + isChecked + ' style="margin-right: 10px; width: 20px; height: 20px;">';
+					html += '<label for="mac_' + client.mac + '" style="margin: 0; font-weight: normal; cursor: pointer;"><strong>' + client.name + '</strong> <span style="font-size: 0.8em; color: #888;">(' + client.mac + ')</span></label>';
+					html += '</div>';
+				});
+			}
+			$("#device_list_container").html(html);
+			$("#fetch_devices").text("<TMPL_VAR SETTINGSJS.DEVICES_RELOAD>").attr("disabled", false);
+		})
+		.fail(function(xhr) {
+			var errorMsg = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : "<TMPL_VAR SETTINGSJS.HINT_GENERAL_ERROR>";
+			$("#device_list_container").html('<i style="color: red;">' + errorMsg + '</i>');
+			$("#fetch_devices").text("<TMPL_VAR SETTINGSJS.DEVICES_RETRY>").attr("disabled", false);
+		});
+	});	
 
+	
 	$("#saveaction").click(function (e) {
 		e.preventDefault(); // Prevent the default form submission
 
-		// Correctly selecting the textarea using escaped dot in the selector
-		var macAddresses = $("#macaddressesraw").val().split('\n');
+		var formData = new FormData(document.getElementById('WifiPresenceUnifiSettings'));
+		
+		// Entferne eventuell vom Formular automatisch gesendete Checkbox-Werte
+		formData.delete('macaddress_checkbox');
+		formData.delete('macaddresses[]');
 
-		// Filter out empty lines
-		macAddresses = macAddresses.filter(function (address) {
-			return address.trim() !== ''; // Remove lines that are empty or contain only whitespace
+		// Hole alle angehakten Checkboxen und hänge sie als Array an das formData Objekt an
+		var selectedMacs = [];
+		$("input[name='macaddress_checkbox']:checked").each(function() {
+			var mac = $(this).val();
+			selectedMacs.push(mac);
+			formData.append('macaddresses[]', mac);
 		});
 
-
-		// Assuming you want to include this array in your AJAX request, you can modify the FormData accordingly
-		var formData = new FormData(WifiPresenceUnifiSettings);
-
-		// Loop through the array and append each item individually
-		macAddresses.forEach(function (address, index) {
-			formData.append('macaddresses[]', address);
-		});
+		// Falls nichts angehakt ist (aber die Liste geladen war), müssen wir ein leeres Array schicken
+		// Das machen wir, indem wir einfach einen Dummy-Wert senden, oder das Speichern leitet.
+		if (selectedMacs.length === 0) {
+			formData.append('macaddresses[]', ''); 
+		}
+		
+		// Update der lokalen Speicherung für die UI
+		window.savedMacAddresses = selectedMacs;		
 
 		$.ajax({
 			url: jsonbackend_write,
@@ -172,4 +219,3 @@ textarea {
 	
 	
 </script>
-
