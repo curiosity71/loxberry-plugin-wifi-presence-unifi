@@ -28,6 +28,11 @@ switch ($requestedAction){
 		pollUnifi();
 		LOGEND("Processing finished.");
 		break;
+	// --- NEUER BLOCK FUER CLIENTS START ---
+	case "getclients":
+		getClientsAsJson();
+		break;
+	// --- NEUER BLOCK FUER CLIENTS ENDE ---
 	default:
 		http_response_code(404);
 		notify(LBPCONFIGDIR, "wifi-presence-unifi", "process.php has been called without parameter.", "error");
@@ -48,6 +53,62 @@ function getconfigasjson($output = false){
 		return;
 	}else{
 		return $config;
+	}
+}
+
+// --- NEUE FUNKTION ZUM ABRUFEN DER GERÄTE ---
+function getClientsAsJson() {
+	$config = getconfigasjson()->slave;
+	
+	if(!isset($config->Main->username) || !isset($config->Main->password) || !isset($config->Main->url)){
+		http_response_code(400);
+		echo json_encode(["error" => "Bitte zuerst Zugangsdaten speichern."]);
+		return;
+	}
+
+	$unifi_connection = new UniFi_API\Client(
+		$config->Main->username, $config->Main->password, 
+		$config->Main->url, $config->Main->sitename, $config->Main->version
+	);
+	
+	$unifi_connection->set_debug(false);
+	$loginresults = $unifi_connection->login();
+	
+	if ($loginresults == true) {
+		// Hole alle bekannten Geräte (auch offline)
+		$clients = $unifi_connection->stat_allusers(); 
+		$resultList = [];
+		
+		if (is_array($clients)) {
+			// Zeitstempel für "vor 30 Tagen" berechnen
+			$thirtyDaysAgo = time() - (30 * 24 * 60 * 60);
+
+			foreach($clients as $client) {
+				// Überspringe das Gerät, wenn es seit über 30 Tagen nicht mehr gesehen wurde
+				// (Oder wenn gar kein Zeitstempel existiert)
+				if (!isset($client->last_seen) || $client->last_seen < $thirtyDaysAgo) {
+					continue; 
+				}
+
+				// Name oder Hostname oder (als Fallback) die MAC-Adresse
+				$name = isset($client->name) ? $client->name : (isset($client->hostname) ? $client->hostname : $client->mac);
+				$resultList[] = [
+					"mac" => $client->mac, 
+					"name" => $name,
+					"sortName" => strtolower($name)
+				];
+			}
+			
+			// Alphabetisch sortieren
+			usort($resultList, function($a, $b) {
+				return strcmp($a['sortName'], $b['sortName']);
+			});
+		}
+		header('Content-Type: application/json');
+		echo json_encode($resultList);
+	} else {
+		http_response_code(500);
+		echo json_encode(["error" => "Login fehlgeschlagen. Stimmen die Zugangsdaten?"]);
 	}
 }
 
@@ -96,18 +157,40 @@ function pollUnifi(){
 		// Initialize the UniFi API connection class and log in to the controller and do our thing
 		$unifi_connection = new UniFi_API\Client(
 			$config->Main->username,
-			$config->Main->password,
-			$config->Main->url,
-			$config->Main->sitename,
+			$config->Main->password, 
+			$config->Main->url, 
+			$config->Main->sitename, 
 			$config->Main->version
 		);
 		$set_debug_mode = $unifi_connection->set_debug(false);
 		LOGDEB("Attempting login...");
-		$loginresults = $unifi_connection->login();
+
+		// --- NEUE RETRY-LOGIK START ---
+		$maxRetries = 3;
+		$retryDelay = 5; // Wartezeit in Sekunden zwischen den Versuchen
+		$loginresults = false;
+
+		for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+			$loginresults = $unifi_connection->login();
+			
+			if ($loginresults == true) {
+				// Login war erfolgreich, wir können die Schleife abbrechen
+				break; 
+			}
+
+			// Wenn der Login fehlschlug und es noch nicht der letzte Versuch war
+			if ($attempt < $maxRetries) {
+				LOGWARN("Login to unifi failed (Versuch $attempt von $maxRetries). Warte $retryDelay Sekunden...");
+				sleep($retryDelay);
+			}
+		}
+		// --- NEUE RETRY-LOGIK ENDE ---
+
 		LOGDEB("Login response received");
+		
 		if ($loginresults != true) {
-			notify(LBPCONFIGDIR, "wifi-presence-unifi", "wifi-presence-unifi Plugin: Login to unifi failed", "error");
-			LOGERR("Login to unifi failed with response " . $loginresults . " (username: " . $config->Main->username . ")");
+			notify(LBPCONFIGDIR, "wifi-presence-unifi", "wifi-presence-unifi Plugin: Login to unifi failed after $maxRetries attempts", "error");
+			LOGERR("Login to unifi failed with response " . $loginresults . " (username: " . $config->Main->username . ") after $maxRetries attempts.");
 			die();
 		} else {
 			LOGINF("Login to UniFi was successful");
@@ -266,30 +349,40 @@ function pollUnifi(){
 				}
 			}
 
+			// --- NEU: Basis für das MQTT Topic ermitteln ---
+			$topicBaseSetting = isset($config->Main->mqtt_topic_base) ? $config->Main->mqtt_topic_base : 'mac';
+			$clientTopicBase = $mqttFriendlyMac; // Standard ist MAC			
+
+			// Wenn Name gewünscht ist und auch einer existiert (-1 heißt im Plugin: nicht gefunden)
+			if ($topicBaseSetting === 'name' && $mqttFriendlyName !== -1 && $mqttFriendlyName !== "") {
+				// Leerzeichen und Sonderzeichen für ein sicheres MQTT-Topic durch Minus ersetzen
+				$clientTopicBase = preg_replace('/[^a-zA-Z0-9_-]/', '-', $mqttFriendlyName);
+			}
+			
 			//MQTT transmission
 			if ($online === true) {
 				LOGINF("Client ". $mac. " is online");
-				$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/online", 1, 0, 1);
+				$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/online", 1, 0, 1);
 			} else {
 				LOGINF("Client ". $mac. " is offline");
-				$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/online", 0, 0, 1);
+				$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/online", 0, 0, 1);
 			}
 
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/powersave_enabled", $mqttFriendlyPowersaveEnabled, 0, 1); // This is either 0 or 1
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/ap_mac", $mqttFriendlyApMac, 0, 1); // This is a MAC
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/ap_name", $mqttFriendlyAPName, 0, 1); // This is a MAC
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/disconnect_ago", $mqttFriendlyLastDisconnectAgo, 0, 1); //These are seconds
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/last_seen_ago", $mqttFriendlyLastSeenAgo, 0, 1); //These are seconds
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/uptime", $mqttFriendlyUptime, 0, 1); //These are seconds
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/uptime_by_uap", $mqttFriendlyUptimeByUAP, 0, 1); //These are seconds
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/assoc_time_ago", $mqttFriendlyAssocTimeAgo, 0, 1); //These are seconds
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/latest_assoctime_ago", $mqttFriendlyLatestAssocTimeAgo, 0, 1); //These are seconds
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/hostname", $mqttFriendlyHostname, 0, 1); //This is the network hostname
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/name", $mqttFriendlyName, 0, 1); //This is the alias set in unifi
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/essid", $mqttFriendlyEssid, 0, 1); //This is the connected WLAN SSID
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/ip", $mqttFriendlyIp, 0, 1); //This is the connected IP Address
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/satisfaction", $mqttFriendlySatisfaction, 0, 1); //This is the Client Satisfaction
-			$mqtt->publish("wifi-presence-unifi/clients/" . $mqttFriendlyMac . "/signal", $mqttFriendlySignal, 0, 1); //This is the Client Signal Strength
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/powersave_enabled", $mqttFriendlyPowersaveEnabled, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/ap_mac", $mqttFriendlyApMac, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/ap_name", $mqttFriendlyAPName, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/disconnect_ago", $mqttFriendlyLastDisconnectAgo, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/last_seen_ago", $mqttFriendlyLastSeenAgo, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/uptime", $mqttFriendlyUptime, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/uptime_by_uap", $mqttFriendlyUptimeByUAP, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/assoc_time_ago", $mqttFriendlyAssocTimeAgo, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/latest_assoctime_ago", $mqttFriendlyLatestAssocTimeAgo, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/hostname", $mqttFriendlyHostname, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/name", $mqttFriendlyName, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/signal", $mqttFriendlySignal, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/satisfaction", $mqttFriendlySatisfaction, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/ESSID", $mqttFriendlyEssid, 0, 1); 
+			$mqtt->publish("wifi-presence-unifi/clients/" . $clientTopicBase . "/IP", $mqttFriendlyIp, 0, 1); 
 
 		}
 
@@ -301,16 +394,24 @@ function pollUnifi(){
 				$mqttFriendlyMac = str_replace(':', '-', $ap->ethernet_table[0]->mac);
 				$mqttFriendlyName = $ap->name;
 				$mqttFriendlyClientCount = $ap->num_sta;
-				// Check if this AP is the uplink of one of the monitored clients
-				if (in_array($ap->mac, $uplinkMacList)) {
-					$mqttFriendlyPresence = 1;
-				} else {
-					$mqttFriendlyPresence = 0;
+				
+				// --- NEU: Basis für AP Topics ermitteln ---
+				$topicBaseSetting = isset($config->Main->mqtt_topic_base) ? $config->Main->mqtt_topic_base : 'mac';
+				$deviceTopicBase = $mqttFriendlyMac;
+				if ($topicBaseSetting === 'name' && !empty($mqttFriendlyName)) {
+					$deviceTopicBase = preg_replace('/[^a-zA-Z0-9_-]/', '-', $mqttFriendlyName);
 				}
 
-				$mqtt->publish("wifi-presence-unifi/devices/" . $mqttFriendlyMac . "/name", $mqttFriendlyName, 0, 1);
-				$mqtt->publish("wifi-presence-unifi/devices/" . $mqttFriendlyMac . "/clientcount", $mqttFriendlyClientCount, 0, 1);
-				$mqtt->publish("wifi-presence-unifi/devices/" . $mqttFriendlyMac . "/presence", $mqttFriendlyPresence, 0, 1);
+				// Check if this AP is the uplink of one of the monitored clients
+				if (in_array($ap->mac, $uplinkMacList)) {
+					$mqttFriendlyPresence = 1; 
+				} else {
+					$mqttFriendlyPresence = 0; 
+				}
+
+				$mqtt->publish("wifi-presence-unifi/devices/" . $deviceTopicBase . "/name", $mqttFriendlyName, 0, 1);
+				$mqtt->publish("wifi-presence-unifi/devices/" . $deviceTopicBase . "/clientcount", $mqttFriendlyClientCount, 0, 1);
+				$mqtt->publish("wifi-presence-unifi/devices/" . $deviceTopicBase . "/presence", $mqttFriendlyPresence, 0, 1);
 			}
 		}
 
